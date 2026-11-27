@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AI VIDEO STUDIO</title>
+<style>
+:root{--bg:#181a2a;--panel:#22253a;--line:#343959;--text:#e9eaf5;--muted:#9aa0c0;--acc:#f5b85c;--err:#ff7a8a;--ok:#6fd6a3}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 "Trebuchet MS",system-ui,sans-serif}
+body{padding-top:env(safe-area-inset-top,0)}
+header{padding:14px 16px 0;font-weight:700;letter-spacing:.5px}
+main{padding:12px 16px 96px;max-width:720px;margin:0 auto}
+h2{margin:8px 0 12px;font-size:21px}
+label{display:block;margin:14px 0 6px;color:var(--muted);font-size:14px}
+textarea,input,select{width:100%;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:12px;font:inherit}
+textarea{min-height:110px;resize:vertical}
+.go{margin-top:18px;width:100%;background:var(--acc);color:#2a1f08;border:0;border-radius:8px;padding:13px;font:inherit;font-weight:700}
+.go:disabled{opacity:.5}
+.sm{background:none;border:1px solid var(--line);color:var(--text);border-radius:6px;padding:6px 10px;font:inherit;font-size:13px;margin:6px 6px 0 0}
+.msg{margin-top:16px;padding:12px;border-radius:8px;background:var(--panel);border:1px solid var(--line)}
+.msg.err{border-color:var(--err);color:var(--err)}.msg.ok{border-color:var(--ok)}
+video{width:100%;max-height:60vh;border-radius:8px;margin-top:10px;background:#000}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:14px}
+.card p{margin:8px 0 4px;font-size:14px}.card small{color:var(--muted)}a{color:var(--acc)}
+.prev{max-width:200px;border-radius:8px;margin-top:10px;display:none}
+nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--panel);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0)}
+nav button{flex:1;background:none;border:0;color:var(--muted);padding:14px 4px;font:inherit;font-size:13px}
+nav button.on{color:var(--acc)}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--acc);border-radius:50%;animation:s 1s linear infinite;vertical-align:-2px;margin-right:8px}
+@keyframes s{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+</style>
+</head>
+<body>
+<header>AI VIDEO STUDIO</header>
+<main>
+  <section id="gen">
+    <h2 id="gtitle"></h2>
+    <label for="prompt">Prompt</label>
+    <textarea id="prompt" placeholder="Contoh: kamera bergerak pelan mengelilingi ikat pinggang kulit cokelat di atas karpet"></textarea>
+    <div id="imgbox">
+      <label for="file">Gambar awal</label>
+      <input type="file" id="file" accept="image/png,image/jpeg,image/webp">
+      <img id="prev" class="prev" alt="Pratinjau gambar">
+    </div>
+    <label for="ratio">Rasio</label>
+    <select id="ratio"><option value="720:1280">9:16 (TikTok, Reels, Shorts)</option><option value="1280:720">16:9</option><option value="960:960">1:1 (hanya gambar ke video)</option></select>
+    <label for="dur">Durasi</label>
+    <select id="dur"><option value="5">5 detik</option><option value="10">10 detik</option></select>
+    <button class="go" id="go">Buat video</button>
+    <div id="status"></div>
+  </section>
+  <section id="gal" hidden><h2>Galeri</h2><div id="grid"></div></section>
+  <section id="set" hidden>
+    <h2>Pengaturan</h2>
+    <div class="msg">Provider: Runway. Layanan berbayar (kredit Runway). Cek harga terbaru di docs.dev.runwayml.com. Setiap pembuatan video meminta konfirmasi lebih dulu.</div>
+    <label for="key">API key Runway <span id="keyst"></span></label>
+    <input id="key" type="password" placeholder="Tempel API key dari dev.runwayml.com" autocomplete="off">
+    <label for="tm">Model teks ke video</label><input id="tm">
+    <label for="im">Model gambar ke video</label><input id="im">
+    <button class="go" id="save">Simpan pengaturan</button>
+    <div id="sst"></div>
+  </section>
+</main>
+<nav id="nav">
+  <button data-t="text" class="on">Teks</button>
+  <button data-t="image">Gambar</button>
+  <button data-t="gallery">Galeri</button>
+  <button data-t="settings">Pengaturan</button>
+</nav>
+<script>
+const $=id=>document.getElementById(id), API='https://api.dev.runwayml.com/v1';
+const LS=k=>{try{return JSON.parse(localStorage.getItem(k))}catch{return null}};
+const cfg=()=>Object.assign({apiKey:'',textModel:'gen4.5',imageModel:'gen4_turbo'},LS('cfg'));
+const jobs=()=>LS('jobs')||[], saveJobs=j=>localStorage.setItem('jobs',JSON.stringify(j.slice(0,50)));
+let tab='text',imgData=null,pollT=null;
+async function rw(method,p,data){
+  const k=cfg().apiKey;
+  if(!k)throw new Error('API key belum diisi. Buka menu Pengaturan.');
+  let r;
+  try{r=await fetch(API+p,{method,headers:{Authorization:'Bearer '+k,'X-Runway-Version':'2024-11-06','Content-Type':'application/json'},body:data?JSON.stringify(data):undefined})}
+  catch(e){throw new Error('Tidak bisa terhubung ke Runway. Periksa koneksi internet.')}
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(j.error||j.message||'Runway menolak permintaan (HTTP '+r.status+').');
+  return j;
+}
+function show(el,text,cls){el.className='msg '+(cls||'');el.textContent=text}
+function setTab(t){
+  tab=t;
+  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
+  $('gen').hidden=!(t==='text'||t==='image');$('gal').hidden=t!=='gallery';$('set').hidden=t!=='settings';
+  $('imgbox').style.display=t==='image'?'block':'none';
+  $('gtitle').textContent=t==='image'?'Gambar ke video':'Teks ke video';
+  $('status').textContent='';$('status').className='';
+  if(t==='gallery')loadGallery();if(t==='settings')loadCfg();
+}
+$('nav').onclick=e=>{if(e.target.dataset.t)setTab(e.target.dataset.t)};
+$('file').onchange=e=>{
+  const f=e.target.files[0];if(!f)return;
+  if(f.size>3.5*1024*1024){show($('status'),'Gambar terlalu besar. Pakai file di bawah 3,5 MB.','err');e.target.value='';return}
+  const r=new FileReader();r.onload=()=>{imgData=r.result;$('prev').src=imgData;$('prev').style.display='block'};r.readAsDataURL(f);
+};
+async function refresh(id){ // cek status satu job, simpan hasilnya
+  const t=await rw('GET','/tasks/'+id),all=jobs(),j=all.find(x=>x.id===id);
+  if(j){j.status=t.status;if(t.status==='SUCCEEDED'&&t.output&&t.output[0])j.file=t.output[0];
+    if(t.status==='FAILED')j.error=t.failure||'Pembuatan video gagal.';saveJobs(all)}
+  return Object.assign({},t,{file:j&&j.file,error:j&&j.error});
+}
+function poll(id,box){
+  clearTimeout(pollT);
+  pollT=setTimeout(async()=>{
+    try{
+      const t=await refresh(id);
+      if(t.status==='SUCCEEDED'&&t.file){
+        box.className='msg ok';box.textContent='Video selesai. ';
+        const a=document.createElement('a');a.href=t.file;a.target='_blank';a.textContent='Buka dan simpan MP4';box.appendChild(a);
+        const v=document.createElement('video');v.src=t.file;v.controls=true;v.playsInline=true;box.appendChild(v);
+        $('go').disabled=false;return;
+      }
+      if(t.status==='FAILED'||t.status==='CANCELLED'){show(box,t.error||'Pembuatan video gagal. Coba ubah prompt atau gambar.','err');$('go').disabled=false;return}
+      box.className='msg';box.innerHTML='<span class="spin"></span>Sedang diproses ('+String(t.status).toLowerCase()+(t.progress?', '+Math.round(t.progress*100)+'%':'')+'). Biasanya 1-3 menit.';
+      poll(id,box);
+    }catch(e){show(box,e.message,'err');$('go').disabled=false}
+  },6000);
+}
+$('go').onclick=async()=>{
+  const box=$('status'),img=tab==='image',c=cfg(),prompt=$('prompt').value.trim();
+  if(prompt.length<3)return show(box,'Tulis prompt minimal 3 karakter.','err');
+  if(img&&!imgData)return show(box,'Unggah gambar terlebih dahulu.','err');
+  if(!confirm('Ini memakai kredit berbayar Runway. Lanjutkan membuat video?'))return;
+  $('go').disabled=true;show(box,'Mengirim ke Runway...');
+  try{
+    const body={model:img?c.imageModel:c.textModel,promptText:prompt,ratio:$('ratio').value,duration:+$('dur').value};
+    if(img)body.promptImage=imgData;
+    const t=await rw('POST',img?'/image_to_video':'/text_to_video',body),all=jobs();
+    all.unshift({id:t.id,mode:tab,prompt,ratio:body.ratio,duration:body.duration,status:'PENDING',at:Date.now()});saveJobs(all);
+    poll(t.id,box);
+  }catch(e){show(box,e.message,'err');$('go').disabled=false}
+};
+function loadGallery(){
+  const g=$('grid');g.textContent='';
+  const all=jobs();
+  if(!all.length){g.textContent='Belum ada video. Buat yang pertama dari tab Teks.';return}
+  all.forEach(j=>{
+    const c=document.createElement('div');c.className='card';
+    if(j.file){const v=document.createElement('video');v.src=j.file;v.controls=true;v.playsInline=true;c.appendChild(v)}
+    const p=document.createElement('p');p.textContent=j.prompt;c.appendChild(p);
+    const s=document.createElement('small');s.textContent=(j.file?'Selesai':j.status==='FAILED'?'Gagal':'Belum selesai')+' - '+j.duration+' detik';c.appendChild(s);
+    c.appendChild(document.createElement('br'));
+    if(j.file){const a=document.createElement('a');a.href=j.file;a.target='_blank';a.className='sm';a.textContent='Buka dan simpan';c.appendChild(a)}
+    if(!j.file&&j.status!=='FAILED'){const b=document.createElement('button');b.className='sm';b.textContent='Cek status';
+      b.onclick=async()=>{b.disabled=true;try{await refresh(j.id);loadGallery()}catch(e){b.textContent=e.message}};c.appendChild(b)}
+    const d=document.createElement('button');d.className='sm';d.textContent='Hapus';
+    d.onclick=()=>{if(confirm('Hapus dari galeri?')){saveJobs(jobs().filter(x=>x.id!==j.id));loadGallery()}};c.appendChild(d);
+    g.appendChild(c);
+  });
+  const n=document.createElement('small');n.textContent='Tautan video Runway kedaluwarsa dalam waktu singkat (sekitar 1-2 hari). Simpan video yang Anda butuhkan.';g.appendChild(n);
+}
+function loadCfg(){const c=cfg();$('keyst').textContent=c.apiKey?'(tersimpan)':'(belum diisi)';$('tm').value=c.textModel;$('im').value=c.imageModel}
+$('save').onclick=()=>{
+  const c=cfg(),k=$('key').value.trim();
+  if(k)c.apiKey=k;c.textModel=$('tm').value.trim()||'gen4.5';c.imageModel=$('im').value.trim()||'gen4_turbo';
+  localStorage.setItem('cfg',JSON.stringify(c));$('key').value='';show($('sst'),'Pengaturan tersimpan.','ok');loadCfg();
+};
+setTab('text');
+</script>
+</body>
+</html>

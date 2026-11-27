@@ -1,0 +1,7 @@
+{
+  "appId": "com.aivideostudio.app",
+  "appName": "AI VIDEO STUDIO",
+  "webDir": "www",
+  "backgroundColor": "#181a2a",
+  "plugins": { "CapacitorHttp": { "enabled": true } }
+}

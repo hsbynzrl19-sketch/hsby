@@ -23,4 +23,3 @@ Buka tab Pengaturan, tempel API key Runway (buat di dev.runwayml.com), lalu Simp
 - Tautan video Runway cepat kedaluwarsa, jadi simpan hasilnya.
 - Ini APK debug untuk pemakaian pribadi, bukan untuk dirilis di Play Store.
 - Belum diuji di perangkat dan belum diuji dengan API key asli.
-- 
